@@ -219,6 +219,37 @@ impl SupportedDtls12CipherSuite for Aes128GcmSha256 {
     }
 }
 
+/// TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 cipher suite (client only: the
+/// server's RSA signature is verified, we never sign with RSA).
+#[derive(Debug)]
+struct EcdheRsaAes128GcmSha256;
+
+impl SupportedDtls12CipherSuite for EcdheRsaAes128GcmSha256 {
+    fn suite(&self) -> Dtls12CipherSuite {
+        Dtls12CipherSuite::ECDHE_RSA_AES128_GCM_SHA256
+    }
+
+    fn hash_algorithm(&self) -> HashAlgorithm {
+        HashAlgorithm::SHA256
+    }
+
+    fn key_lengths(&self) -> (usize, usize, usize) {
+        (0, 16, 4) // (mac_key_len, enc_key_len, fixed_iv_len)
+    }
+
+    fn explicit_nonce_len(&self) -> usize {
+        8
+    }
+
+    fn tag_len(&self) -> usize {
+        16
+    }
+
+    fn create_cipher(&self, key: &[u8]) -> Result<Box<dyn Cipher>, CryptoError> {
+        Ok(Box::new(AesGcm::new(key)?))
+    }
+}
+
 /// TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 cipher suite.
 #[derive(Debug)]
 struct Aes256GcmSha384;
@@ -315,6 +346,7 @@ impl SupportedDtls12CipherSuite for PskAes128Ccm8 {
 static AES_128_GCM_SHA256: Aes128GcmSha256 = Aes128GcmSha256;
 static AES_256_GCM_SHA384: Aes256GcmSha384 = Aes256GcmSha384;
 static CHACHA20_POLY1305_SHA256: ChaCha20Poly1305Sha256 = ChaCha20Poly1305Sha256;
+static ECDHE_RSA_AES_128_GCM_SHA256: EcdheRsaAes128GcmSha256 = EcdheRsaAes128GcmSha256;
 static PSK_AES_128_CCM_8: PskAes128Ccm8 = PskAes128Ccm8;
 
 /// All supported DTLS 1.2 cipher suites.
@@ -322,6 +354,7 @@ pub(super) static ALL_CIPHER_SUITES: &[&dyn SupportedDtls12CipherSuite] = &[
     &AES_128_GCM_SHA256,
     &AES_256_GCM_SHA384,
     &CHACHA20_POLY1305_SHA256,
+    &ECDHE_RSA_AES_128_GCM_SHA256,
     &PSK_AES_128_CCM_8,
 ];
 

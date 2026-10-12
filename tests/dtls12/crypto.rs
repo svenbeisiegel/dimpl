@@ -73,6 +73,10 @@ fn dtls12_all_cipher_suites() {
 
         run_dimpl_client_vs_ossl_server_for_suite(suite);
 
+        // ECDHE_RSA is client only: dimpl has no RSA private keys to serve it.
+        if suite.signature_algorithm() == Some(SignatureAlgorithm::RSA) {
+            continue;
+        }
         eprintln!("Testing suite (ossl client ↔️ dimpl server): {:?}", suite);
         run_ossl_client_vs_dimpl_server_for_suite(suite);
     }
@@ -100,7 +104,8 @@ fn config_for_suite(suite: Dtls12CipherSuite) -> Arc<Config> {
 }
 
 fn run_dimpl_client_vs_ossl_server_for_suite(suite: Dtls12CipherSuite) {
-    // Generate certificates for both client and server matching the suite's signature algorithm
+    // The server's certificate matches the suite's signature algorithm; the
+    // dimpl client always authenticates with ECDSA (its only key type).
     let pkey_type = match suite.signature_algorithm() {
         Some(SignatureAlgorithm::ECDSA) => DtlsPKeyType::EcDsaP256,
         Some(SignatureAlgorithm::RSA) => DtlsPKeyType::Rsa2048,
@@ -109,7 +114,7 @@ fn run_dimpl_client_vs_ossl_server_for_suite(suite: Dtls12CipherSuite) {
 
     let client_cert = OsslDtlsCert::new(DtlsCertOptions {
         common_name: "WebRTC".into(),
-        pkey_type: pkey_type.clone(),
+        pkey_type: DtlsPKeyType::EcDsaP256,
     });
 
     let server_cert = OsslDtlsCert::new(DtlsCertOptions {

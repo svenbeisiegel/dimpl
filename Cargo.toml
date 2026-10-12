@@ -24,7 +24,7 @@ rust-crypto = [
             "dep:aes-gcm", "dep:chacha20poly1305", "dep:chacha20", "dep:p256",
             "dep:p384", "dep:x25519-dalek", "dep:sha2", "dep:hmac", "dep:hkdf",
             "dep:ecdsa", "dep:generic-array", "dep:rand_core",
-            "dep:ccm", "dep:aes",
+            "dep:ccm", "dep:aes", "dep:rsa",
             "_crypto-common"
 ]
 
@@ -61,7 +61,7 @@ aws-lc-rs = { version = "^1.16", default-features = false, features = ["aws-lc-s
 aes-gcm = { version = "0.10", optional = true }
 p256 = { version = "0.13", optional = true, features = ["ecdh"] }
 p384 = { version = "0.13", optional = true, features = ["ecdh"] }
-sha2 = { version = "0.10", optional = true }
+sha2 = { version = "0.10", optional = true, features = ["oid"] }
 hmac = { version = "0.12", optional = true }
 hkdf = { version = "0.12", optional = true }
 ecdsa = { version = "0.16", optional = true, features = ["signing", "verifying"] }
@@ -72,6 +72,10 @@ chacha20 = { version = "0.9", optional = true }
 ccm = { version = "0.5", default-features = false, optional = true }
 aes = { version = "0.8", optional = true }
 x25519-dalek = { version = "2", optional = true, features = ["static_secrets"] }
+# RSA PKCS#1 v1.5 verification of a DTLS 1.2 server's ServerKeyExchange.
+# Public-key operations only: RUSTSEC-2023-0071 (Marvin) concerns private-key
+# decryption and signing, which dimpl never does with RSA.
+rsa = { version = "0.9.10", default-features = false, features = ["std", "u64_digit"], optional = true }
 
 # certificate generation
 rcgen = { version = "0.14.7", default-features = false, features = ["aws_lc_rs"], optional = true }

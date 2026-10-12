@@ -39,7 +39,15 @@ impl OsslDtlsImpl {
         cert: OsslDtlsCert,
         groups_list: Option<&str>,
     ) -> Result<Self, CryptoError> {
-        let context = dtls_create_ctx_with_groups(&cert, groups_list)?;
+        Self::new_with_options(cert, groups_list, None)
+    }
+
+    pub fn new_with_options(
+        cert: OsslDtlsCert,
+        groups_list: Option<&str>,
+        srtp_profiles: Option<&[SrtpProfile]>,
+    ) -> Result<Self, CryptoError> {
+        let context = dtls_create_ctx_with_options(&cert, groups_list, srtp_profiles)?;
         let ssl = dtls_ssl_create(&context)?;
         Ok(OsslDtlsImpl {
             _cert: cert,
@@ -148,6 +156,14 @@ pub fn dtls_create_ctx_with_groups(
     cert: &OsslDtlsCert,
     groups_list: Option<&str>,
 ) -> Result<SslContext, CryptoError> {
+    dtls_create_ctx_with_options(cert, groups_list, None)
+}
+
+pub fn dtls_create_ctx_with_options(
+    cert: &OsslDtlsCert,
+    groups_list: Option<&str>,
+    srtp_profiles: Option<&[SrtpProfile]>,
+) -> Result<SslContext, CryptoError> {
     // TODO: Technically we want to disallow DTLS < 1.2, but that requires
     // us to use this commented out unsafe. We depend on browsers disallowing
     // it instead.
@@ -161,7 +177,11 @@ pub fn dtls_create_ctx_with_groups(
     let srtp_profiles = {
         // Rust can't join directly to a string, need to allocate a vec first :(
         // This happens very rarely so the extra allocations don't matter
-        let all: Vec<_> = SrtpProfile::ALL.iter().map(openssl_name).collect();
+        let all: Vec<_> = srtp_profiles
+            .unwrap_or(SrtpProfile::ALL)
+            .iter()
+            .map(openssl_name)
+            .collect();
 
         all.join(":")
     };
@@ -171,6 +191,12 @@ pub fn dtls_create_ctx_with_groups(
     mode.insert(SslVerifyMode::PEER);
     mode.insert(SslVerifyMode::FAIL_IF_NO_PEER_CERT);
     ctx.set_verify_callback(mode, |_ok, _ctx| true);
+
+    // OpenSSL's default security level refuses RSA keys under 2048 bits,
+    // which some media gateways (on older OpenSSL) still serve.
+    if cert.pkey.rsa().is_ok_and(|rsa| rsa.size() * 8 < 2048) {
+        ctx.set_security_level(1);
+    }
 
     ctx.set_private_key(&cert.pkey)?;
     ctx.set_certificate(&cert.x509)?;

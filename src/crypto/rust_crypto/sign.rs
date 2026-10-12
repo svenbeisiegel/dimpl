@@ -10,9 +10,9 @@ use pkcs8::DecodePrivateKey;
 use spki::ObjectIdentifier;
 use x509_cert::Certificate as X509Certificate;
 
-use super::super::check_verify_scheme;
 use super::super::{KeyProvider, SignatureVerifier, SigningKey as SigningKeyTrait};
-use super::super::{OID_P256, OID_P384};
+use super::super::{OID_P256, OID_P384, OID_RSA_ENCRYPTION};
+use super::super::{check_rsa_verify_scheme, check_verify_scheme};
 use crate::buffer::Buf;
 use crate::types::{HashAlgorithm, NamedGroup, SignatureAlgorithm};
 use crate::{CryptoError, CryptoOperation};
@@ -202,13 +202,24 @@ impl SignatureVerifier for RustCryptoSignatureVerifier {
         hash_alg: HashAlgorithm,
         sig_alg: SignatureAlgorithm,
     ) -> Result<(), CryptoError> {
-        if sig_alg != SignatureAlgorithm::ECDSA {
+        if sig_alg != SignatureAlgorithm::ECDSA && sig_alg != SignatureAlgorithm::RSA {
             return Err(CryptoError::UnsupportedSignatureAlgorithm(sig_alg));
         }
 
         let cert =
             X509Certificate::from_der(cert_der).map_err(|_| CryptoError::CertificateParseFailed)?;
         let spki = &cert.tbs_certificate.subject_public_key_info;
+
+        if sig_alg == SignatureAlgorithm::RSA {
+            if spki.algorithm.oid != OID_RSA_ENCRYPTION {
+                return Err(CryptoError::UnsupportedPublicKeyAlgorithm);
+            }
+            let pubkey_bytes = spki
+                .subject_public_key
+                .as_bytes()
+                .ok_or(CryptoError::InvalidSubjectPublicKey)?;
+            return verify_rsa_pkcs1(pubkey_bytes, data, signature, hash_alg);
+        }
 
         const OID_EC_PUBLIC_KEY: ObjectIdentifier =
             ObjectIdentifier::new_unwrap("1.2.840.10045.2.1");
@@ -280,6 +291,40 @@ impl SignatureVerifier for RustCryptoSignatureVerifier {
             _ => unreachable!(),
         }
     }
+}
+
+/// Verify an RSA PKCS#1 v1.5 signature with a PKCS#1 `RSAPublicKey`
+/// (the subject public key of an `rsaEncryption` certificate).
+fn verify_rsa_pkcs1(
+    pubkey_der: &[u8],
+    data: &[u8],
+    signature: &[u8],
+    hash_alg: HashAlgorithm,
+) -> Result<(), CryptoError> {
+    use rsa::pkcs1::DecodeRsaPublicKey;
+    use rsa::traits::PublicKeyParts;
+    use rsa::{Pkcs1v15Sign, RsaPublicKey};
+    use sha2::Digest;
+
+    let key =
+        RsaPublicKey::from_pkcs1_der(pubkey_der).map_err(|_| CryptoError::InvalidRsaPublicKey)?;
+    check_rsa_verify_scheme(hash_alg, key.n().bits())?;
+
+    let result = match hash_alg {
+        HashAlgorithm::SHA256 => key.verify(
+            Pkcs1v15Sign::new::<sha2::Sha256>(),
+            &sha2::Sha256::digest(data),
+            signature,
+        ),
+        HashAlgorithm::SHA384 => key.verify(
+            Pkcs1v15Sign::new::<sha2::Sha384>(),
+            &sha2::Sha384::digest(data),
+            signature,
+        ),
+        // unreachable: check_rsa_verify_scheme already validated
+        _ => unreachable!(),
+    };
+    result.map_err(|_| CryptoError::RsaSignatureVerificationFailed { hash: hash_alg })
 }
 
 /// Static instance of the key provider.

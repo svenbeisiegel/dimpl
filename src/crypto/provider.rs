@@ -161,6 +161,11 @@ pub const OID_P256: spki::ObjectIdentifier =
 #[cfg(feature = "_crypto-common")]
 pub const OID_P384: spki::ObjectIdentifier = spki::ObjectIdentifier::new_unwrap("1.3.132.0.34");
 
+/// OID for RSA public keys (rsaEncryption).
+#[cfg(feature = "_crypto-common")]
+pub const OID_RSA_ENCRYPTION: spki::ObjectIdentifier =
+    spki::ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.1");
+
 // ============================================================================
 // Marker Trait
 // ============================================================================
@@ -356,6 +361,58 @@ pub fn check_verify_scheme(
             group,
         })
     }
+}
+
+/// Smallest RSA modulus accepted for DTLS 1.2 signature verification, in bits.
+///
+/// Below the 2048 bits current guidance asks for, because media gateways
+/// still use 1536-bit self-signed certificates; anything weaker is refused.
+pub const RSA_MIN_VERIFY_BITS: usize = 1024;
+
+/// Largest RSA modulus accepted for DTLS 1.2 signature verification, in bits.
+pub const RSA_MAX_VERIFY_BITS: usize = 4096;
+
+/// Check that an RSA (PKCS#1 v1.5) verification uses a supported hash and
+/// key size.
+///
+///  Signature | Hash              | Modulus
+/// -----------+-------------------+-------------
+///  RSA       | SHA-256, SHA-384  | 1024..=4096
+pub fn check_rsa_verify_scheme(hash_alg: HashAlgorithm, bits: usize) -> Result<(), CryptoError> {
+    let hash_ok = matches!(hash_alg, HashAlgorithm::SHA256 | HashAlgorithm::SHA384);
+    if hash_ok && (RSA_MIN_VERIFY_BITS..=RSA_MAX_VERIFY_BITS).contains(&bits) {
+        Ok(())
+    } else {
+        Err(CryptoError::UnsupportedRsaVerification {
+            hash: hash_alg,
+            bits,
+        })
+    }
+}
+
+/// Size in bits of the modulus of a DER-encoded PKCS#1 `RSAPublicKey`.
+#[cfg(feature = "_crypto-common")]
+pub fn rsa_modulus_bits(pkcs1_der: &[u8]) -> Result<usize, CryptoError> {
+    use der::asn1::UintRef;
+    use der::{Decode, Reader, SliceReader};
+
+    let invalid = |_| CryptoError::InvalidRsaPublicKey;
+    let mut reader = SliceReader::new(pkcs1_der).map_err(invalid)?;
+    let modulus = reader
+        .sequence(|seq| {
+            let modulus = UintRef::decode(seq)?;
+            let _exponent = UintRef::decode(seq)?;
+            Ok(modulus)
+        })
+        .map_err(invalid)?;
+    reader.finish(()).map_err(invalid)?;
+
+    // UintRef strips leading zero bytes.
+    let bytes = modulus.as_bytes();
+    Ok(match bytes.first() {
+        Some(first) => bytes.len() * 8 - first.leading_zeros() as usize,
+        None => 0,
+    })
 }
 
 /// Extract the EC curve ([`NamedGroup`]) from a DER-encoded X.509 certificate.
@@ -629,6 +686,26 @@ impl CryptoProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rsa_verify_scheme_accepts_sha2_and_1024_to_4096_bits() {
+        for hash in [HashAlgorithm::SHA256, HashAlgorithm::SHA384] {
+            for bits in [1024, 1536, 2048, 4096] {
+                assert!(
+                    check_rsa_verify_scheme(hash, bits).is_ok(),
+                    "{hash:?} {bits}"
+                );
+            }
+            for bits in [512, 1023, 4097, 8192] {
+                assert!(
+                    check_rsa_verify_scheme(hash, bits).is_err(),
+                    "{hash:?} {bits}"
+                );
+            }
+        }
+        assert!(check_rsa_verify_scheme(HashAlgorithm::SHA1, 2048).is_err());
+        assert!(check_rsa_verify_scheme(HashAlgorithm::SHA512, 2048).is_err());
+    }
 
     #[test]
     #[cfg(feature = "rcgen")]
