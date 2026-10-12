@@ -7,12 +7,16 @@ use aws_lc_rs::signature::{ECDSA_P256_SHA256_ASN1, ECDSA_P256_SHA384_ASN1};
 use aws_lc_rs::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, UnparsedPublicKey};
 use aws_lc_rs::signature::{ECDSA_P384_SHA256_ASN1, ECDSA_P384_SHA384_ASN1};
 use aws_lc_rs::signature::{EcdsaKeyPair, EcdsaSigningAlgorithm, EcdsaVerificationAlgorithm};
+use aws_lc_rs::signature::{
+    RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY, RSA_PKCS1_2048_8192_SHA384,
+};
 use der::{Decode, Encode};
 use spki::ObjectIdentifier;
 use x509_cert::Certificate as X509Certificate;
 
 use super::super::{KeyProvider, SignatureVerifier, SigningKey, check_verify_scheme};
-use super::super::{OID_P256, OID_P384};
+use super::super::{OID_P256, OID_P384, OID_RSA_ENCRYPTION};
+use super::super::{check_rsa_verify_scheme, rsa_modulus_bits};
 use crate::buffer::Buf;
 use crate::types::{HashAlgorithm, NamedGroup, SignatureAlgorithm};
 use crate::{CryptoError, CryptoOperation};
@@ -192,13 +196,34 @@ impl SignatureVerifier for AwsLcSignatureVerifier {
         hash_alg: HashAlgorithm,
         sig_alg: SignatureAlgorithm,
     ) -> Result<(), CryptoError> {
-        if sig_alg != SignatureAlgorithm::ECDSA {
+        if sig_alg != SignatureAlgorithm::ECDSA && sig_alg != SignatureAlgorithm::RSA {
             return Err(CryptoError::UnsupportedSignatureAlgorithm(sig_alg));
         }
 
         let cert =
             X509Certificate::from_der(cert_der).map_err(|_| CryptoError::CertificateParseFailed)?;
         let spki = &cert.tbs_certificate.subject_public_key_info;
+
+        if sig_alg == SignatureAlgorithm::RSA {
+            if spki.algorithm.oid != OID_RSA_ENCRYPTION {
+                return Err(CryptoError::UnsupportedPublicKeyAlgorithm);
+            }
+            let pubkey_bytes = spki
+                .subject_public_key
+                .as_bytes()
+                .ok_or(CryptoError::InvalidSubjectPublicKey)?;
+            check_rsa_verify_scheme(hash_alg, rsa_modulus_bits(pubkey_bytes)?)?;
+            // aws-lc-rs has no SHA-384 variant below 2048 bits.
+            let algorithm = match hash_alg {
+                HashAlgorithm::SHA256 => &RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY,
+                HashAlgorithm::SHA384 => &RSA_PKCS1_2048_8192_SHA384,
+                // unreachable: check_rsa_verify_scheme already validated
+                _ => unreachable!(),
+            };
+            return UnparsedPublicKey::new(algorithm, pubkey_bytes)
+                .verify(data, signature)
+                .map_err(|_| CryptoError::RsaSignatureVerificationFailed { hash: hash_alg });
+        }
 
         const OID_EC_PUBLIC_KEY: ObjectIdentifier =
             ObjectIdentifier::new_unwrap("1.2.840.10045.2.1");

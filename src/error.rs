@@ -198,6 +198,20 @@ pub enum CryptoError {
     },
     /// The public key algorithm is unsupported.
     UnsupportedPublicKeyAlgorithm,
+    /// An RSA signature can't be verified with this hash or key size.
+    UnsupportedRsaVerification {
+        /// The requested hash algorithm.
+        hash: HashAlgorithm,
+        /// The RSA modulus size in bits.
+        bits: usize,
+    },
+    /// A certificate's RSA public key could not be parsed.
+    InvalidRsaPublicKey,
+    /// An RSA (PKCS#1 v1.5) signature did not verify.
+    RsaSignatureVerificationFailed {
+        /// The hash algorithm used for verification.
+        hash: HashAlgorithm,
+    },
     /// A certificate or key references an unsupported EC curve.
     UnsupportedEcCurve,
     /// Certificate parsing failed during a crypto operation.
@@ -934,6 +948,16 @@ impl fmt::Display for CryptoError {
                 "signature verification failed: {signature:?} + {hash:?} + {group:?}"
             ),
             Self::UnsupportedPublicKeyAlgorithm => write!(f, "unsupported public key algorithm"),
+            Self::UnsupportedRsaVerification { hash, bits } => {
+                write!(
+                    f,
+                    "unsupported RSA signature verification: {hash:?}, {bits} bits"
+                )
+            }
+            Self::InvalidRsaPublicKey => write!(f, "invalid RSA public key"),
+            Self::RsaSignatureVerificationFailed { hash } => {
+                write!(f, "RSA signature verification failed: {hash:?}")
+            }
             Self::UnsupportedEcCurve => write!(f, "unsupported EC curve"),
             Self::CertificateParseFailed => write!(f, "failed to parse certificate"),
             Self::MissingEcCurveParameter => {

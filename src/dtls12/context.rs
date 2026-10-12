@@ -582,6 +582,23 @@ impl CryptoContext {
         }
     }
 
+    /// Check if a cipher suite can be offered and accepted in the client role.
+    ///
+    /// Unlike [`Self::is_cipher_suite_compatible`] (our key signs the
+    /// ServerKeyExchange, so the server role needs a matching key), a client
+    /// only verifies the server's signature, and authenticates itself with
+    /// any key type the CertificateRequest accepts. So ECDHE_ECDSA and
+    /// ECDHE_RSA suites both work with our (ECDSA) certificate.
+    pub fn is_cipher_suite_offerable_as_client(&self, cipher_suite: Dtls12CipherSuite) -> bool {
+        match (&self.auth, cipher_suite.signature_algorithm()) {
+            (AuthMode::Certificate { .. }, Some(sig_alg)) => {
+                sig_alg == SignatureAlgorithm::ECDSA || sig_alg == SignatureAlgorithm::RSA
+            }
+            (AuthMode::Psk, None) => true,
+            _ => false,
+        }
+    }
+
     /// Get the client write IV if derived.
     pub fn get_client_write_iv(&self) -> Option<Iv> {
         self.client_write_iv
@@ -662,6 +679,43 @@ mod tests {
                 .any(|s| ctx.is_cipher_suite_compatible(*s)),
             "Certificate-mode context must accept at least one ECDHE suite"
         );
+    }
+
+    #[test]
+    #[cfg(feature = "rcgen")]
+    fn certificate_mode_client_offers_ecdhe_rsa_but_server_does_not() {
+        let config = Arc::new(Config::default());
+        let auth = cert_auth_mode(&config);
+        let ctx = CryptoContext::new(auth, config);
+
+        let rsa = Dtls12CipherSuite::ECDHE_RSA_AES128_GCM_SHA256;
+        // Client role: we verify the server's RSA signature.
+        assert!(ctx.is_cipher_suite_offerable_as_client(rsa));
+        // Server role: our ECDSA key can't sign for an RSA suite.
+        assert!(!ctx.is_cipher_suite_compatible(rsa));
+        for suite in Dtls12CipherSuite::supported() {
+            assert_eq!(
+                ctx.is_cipher_suite_offerable_as_client(*suite),
+                !suite.is_psk(),
+                "{:?}",
+                suite
+            );
+        }
+    }
+
+    #[test]
+    fn psk_mode_client_offers_only_psk_suites() {
+        let config = Arc::new(Config::default());
+        let ctx = CryptoContext::new(AuthMode::Psk, config);
+
+        for suite in Dtls12CipherSuite::supported() {
+            assert_eq!(
+                ctx.is_cipher_suite_offerable_as_client(*suite),
+                suite.is_psk(),
+                "{:?}",
+                suite
+            );
+        }
     }
 
     #[test]

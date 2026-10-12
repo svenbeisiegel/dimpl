@@ -488,11 +488,11 @@ impl State {
             .into());
         }
 
-        // Enforce cipher suite is compatible with our private key and allowed by config
+        // Enforce cipher suite is one we offer as a client and allowed by config
         let is_compatible = client
             .engine
             .crypto_context()
-            .is_cipher_suite_compatible(cs);
+            .is_cipher_suite_offerable_as_client(cs);
 
         if !is_compatible {
             return Err(Error::SecurityError(
@@ -1239,12 +1239,16 @@ fn handshake_create_client_hello(
 ) -> Result<(), Error> {
     let client_version = ProtocolVersion::DTLS1_2;
 
-    // Get cipher suites from config that are compatible with our key
+    // Get cipher suites from config that we can use in the client role
     let cipher_suites: CipherSuiteVec = engine
         .config()
         .dtls12_cipher_suites()
         .map(|cs| cs.suite())
-        .filter(|suite| engine.crypto_context().is_cipher_suite_compatible(*suite))
+        .filter(|suite| {
+            engine
+                .crypto_context()
+                .is_cipher_suite_offerable_as_client(*suite)
+        })
         .take(Dtls12CipherSuite::supported().len())
         .collect();
 

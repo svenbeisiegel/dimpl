@@ -21,6 +21,7 @@ impl CryptoProvider {
     /// - `TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256`
     /// - `TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384`
     /// - `TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256`
+    /// - `TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256` (client only)
     pub fn supported_cipher_suites(
         &self,
     ) -> impl Iterator<Item = &'static dyn SupportedDtls12CipherSuite> {
@@ -221,6 +222,11 @@ impl CryptoProvider {
                 (HashAlgorithm::SHA384, SignatureAlgorithm::ECDSA) => (
                     VALIDATION_P384_CERT,
                     VALIDATION_P384_SHA384_SIG,
+                    VALIDATION_TEST_DATA,
+                ),
+                (HashAlgorithm::SHA256, SignatureAlgorithm::RSA) => (
+                    VALIDATION_RSA2048_CERT,
+                    VALIDATION_RSA2048_SHA256_SIG,
                     VALIDATION_TEST_DATA,
                 ),
                 _ => {
@@ -483,6 +489,10 @@ const VALIDATION_P256_CERT: &[u8] = include_bytes!("p256_cert.der");
 const VALIDATION_P256_SHA256_SIG: &[u8] = include_bytes!("p256_sha256_sig.der");
 const VALIDATION_P384_CERT: &[u8] = include_bytes!("p384_cert.der");
 const VALIDATION_P384_SHA384_SIG: &[u8] = include_bytes!("p384_sha384_sig.der");
+// Self-signed RSA 2048 certificate and a PKCS#1 v1.5 SHA-256 signature of
+// test_data.bin (`openssl dgst -sha256 -sign`).
+const VALIDATION_RSA2048_CERT: &[u8] = include_bytes!("rsa2048_cert.der");
+const VALIDATION_RSA2048_SHA256_SIG: &[u8] = include_bytes!("rsa2048_sha256_sig.bin");
 
 // AEAD test vectors for DTLS 1.3 cipher suites
 struct AeadTestVector {
@@ -677,9 +687,10 @@ mod tests_aws_lc_rs {
     fn test_default_provider_has_cipher_suites() {
         let provider = aws_lc_rs::default_provider();
         let count = provider.supported_cipher_suites().count();
-        // ECDHE: AES-128, AES-256, ChaCha20
+        // ECDHE_ECDSA: AES-128, AES-256, ChaCha20
+        // ECDHE_RSA: AES-128 (client only)
         // PSK: CCM-8
-        assert_eq!(count, 4);
+        assert_eq!(count, 5);
     }
 
     #[test]
@@ -727,9 +738,10 @@ mod tests_rust_crypto {
     fn test_default_provider_has_cipher_suites() {
         let provider = rust_crypto::default_provider();
         let count = provider.supported_cipher_suites().count();
-        // ECDHE: AES-128, AES-256, ChaCha20
+        // ECDHE_ECDSA: AES-128, AES-256, ChaCha20
+        // ECDHE_RSA: AES-128 (client only)
         // PSK: CCM-8
-        assert_eq!(count, 4);
+        assert_eq!(count, 5);
     }
 
     #[test]

@@ -27,6 +27,8 @@ pub struct OsslDtlsCert {
 pub enum DtlsPKeyType {
     /// Generate an RSA key pair
     Rsa2048,
+    /// Generate a 1536-bit RSA key pair (as some media gateways still use)
+    Rsa1536,
     /// Generate an EC-DSA key pair using the NIST P-256 curve
     #[default]
     EcDsaP256,
@@ -67,6 +69,10 @@ impl OsslDtlsCert {
         let pkey = match options.pkey_type {
             DtlsPKeyType::Rsa2048 => {
                 let key = Rsa::generate_with_e(2048, &f4)?;
+                PKey::from_rsa(key)?
+            }
+            DtlsPKeyType::Rsa1536 => {
+                let key = Rsa::generate_with_e(1536, &f4)?;
                 PKey::from_rsa(key)?
             }
             DtlsPKeyType::EcDsaP256 => {
@@ -151,6 +157,14 @@ impl OsslDtlsCert {
         groups_list: &str,
     ) -> Result<OsslDtlsImpl, CryptoError> {
         OsslDtlsImpl::new_with_groups(self.clone(), Some(groups_list))
+    }
+
+    /// A DTLS endpoint that only offers/accepts the given SRTP profiles.
+    pub fn new_dtls_impl_with_srtp_profiles(
+        &self,
+        srtp_profiles: &[dimpl::SrtpProfile],
+    ) -> Result<OsslDtlsImpl, CryptoError> {
+        OsslDtlsImpl::new_with_options(self.clone(), None, Some(srtp_profiles))
     }
 }
 

@@ -1337,7 +1337,10 @@ fn handshake_serialize_certificate_request(
     if sig_algs.is_empty() {
         let fallback = SignatureAndHashAlgorithm::supported();
         for alg in fallback.iter() {
-            selected.push(*alg);
+            // Only ECDSA client certificates are accepted (cert_types above).
+            if alg.signature == SignatureAlgorithm::ECDSA {
+                selected.push(*alg);
+            }
         }
     } else {
         for alg in sig_algs.iter() {
@@ -1413,9 +1416,12 @@ fn select_certificate_request_sig_algs(
     let mut out = ArrayVec::new();
     if let Some(list) = client_algs {
         for alg in list.iter() {
-            if ours
-                .iter()
-                .any(|a| a.hash == alg.hash && a.signature == alg.signature)
+            // Only ECDSA client certificates are accepted, so RSA (which we
+            // support for a server's ServerKeyExchange only) is left out.
+            if alg.signature == SignatureAlgorithm::ECDSA
+                && ours
+                    .iter()
+                    .any(|a| a.hash == alg.hash && a.signature == alg.signature)
             {
                 out.push(*alg);
             }

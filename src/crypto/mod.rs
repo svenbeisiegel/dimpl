@@ -39,7 +39,8 @@ pub use provider::{
     SupportedDtls13CipherSuite, SupportedKxGroup, check_verify_scheme,
 };
 #[cfg(feature = "_crypto-common")]
-pub use provider::{OID_P256, OID_P384, cert_named_group};
+pub use provider::{OID_P256, OID_P384, OID_RSA_ENCRYPTION, cert_named_group, rsa_modulus_bits};
+pub use provider::{RSA_MAX_VERIFY_BITS, RSA_MIN_VERIFY_BITS, check_rsa_verify_scheme};
 
 // Re-export shared types for provider trait implementations
 pub use crate::dtls12::message::Dtls12CipherSuite;

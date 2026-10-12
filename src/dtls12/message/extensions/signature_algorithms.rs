@@ -101,23 +101,19 @@ mod tests {
 
         let (_, parsed) = SignatureAlgorithmsExtension::parse(&serialized).unwrap();
 
-        assert_eq!(parsed.supported_signature_algorithms.len(), 1);
-        assert_eq!(
-            parsed.supported_signature_algorithms[0],
-            SignatureAndHashAlgorithm::new(HashAlgorithm::SHA256, SignatureAlgorithm::ECDSA,)
-        );
+        assert_eq!(parsed.supported_signature_algorithms, algorithms);
     }
 
     #[test]
-    fn default_does_not_advertise_rsa() {
+    fn default_advertises_rsa_pkcs1_after_ecdsa() {
         let extension = SignatureAlgorithmsExtension::default();
 
-        assert!(
-            extension
-                .supported_signature_algorithms
-                .iter()
-                .all(|algorithm| algorithm.signature != SignatureAlgorithm::RSA)
-        );
+        let wire: Vec<u16> = extension
+            .supported_signature_algorithms
+            .iter()
+            .map(|algorithm| algorithm.as_u16())
+            .collect();
+        assert_eq!(wire, [0x0403, 0x0503, 0x0401, 0x0501]);
     }
 
     #[test]

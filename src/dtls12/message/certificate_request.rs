@@ -135,11 +135,11 @@ mod test {
     ];
 
     #[test]
-    fn filters_unsupported_rsa_signature_algorithm() {
+    fn keeps_supported_ecdsa_and_rsa_signature_algorithms() {
         // Parse the message with base_offset 0
         let (rest, parsed) = CertificateRequest::parse(MESSAGE, 0).unwrap();
         assert!(rest.is_empty());
-        assert_eq!(parsed.supported_signature_algorithms.len(), 1);
+        assert_eq!(parsed.supported_signature_algorithms.len(), 2);
         assert_eq!(
             parsed.supported_signature_algorithms[0],
             SignatureAndHashAlgorithm::new(
@@ -147,22 +147,19 @@ mod test {
                 super::super::SignatureAlgorithm::ECDSA,
             )
         );
+        assert_eq!(
+            parsed.supported_signature_algorithms[1],
+            SignatureAndHashAlgorithm::new(
+                super::super::HashAlgorithm::SHA256,
+                super::super::SignatureAlgorithm::RSA,
+            )
+        );
 
         // Serialization must not re-advertise the filtered RSA algorithm.
         let mut serialized = Buf::new();
         parsed.serialize(MESSAGE, &mut serialized);
-        let expected = [
-            0x01, // Certificate types length (1 byte)
-            0x40, // Certificate type: ECDSA_SIGN
-            0x00, 0x02, // Signature algorithms length (2 bytes = 1 algorithm)
-            0x04, 0x03, // SHA256/ECDSA
-            0x00, 0x0C, // Certificate authorities length
-            0x00, 0x04, // Distinguished name 1 length
-            0x01, 0x02, 0x03, 0x04, // Distinguished name 1 data
-            0x00, 0x04, // Distinguished name 2 length
-            0x05, 0x06, 0x07, 0x08, // Distinguished name 2 data
-        ];
-        assert_eq!(&*serialized, expected);
+        // Both algorithms are supported, so the message round-trips unchanged.
+        assert_eq!(&*serialized, MESSAGE);
     }
 
     #[test]
