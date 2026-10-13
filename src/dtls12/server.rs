@@ -1327,9 +1327,11 @@ fn handshake_serialize_certificate_request(
     body: &mut Buf,
     sig_algs: &SignatureAndHashAlgorithmVec,
 ) -> Result<(), Error> {
-    // Only advertise ECDSA_SIGN (the only supported client cert type)
+    // Client certificates may be ECDSA or RSA: CertificateVerify is checked
+    // with the generic verifier, which handles both.
     let mut cert_types = CertificateTypeVec::new();
     cert_types.push(ClientCertificateType::ECDSA_SIGN);
+    cert_types.push(ClientCertificateType::RSA_SIGN);
 
     // If intersection is empty (e.g., client didn't advertise), fall back to our supported set
     // Build the selected list with the capacity expected by CertificateRequest
@@ -1337,10 +1339,7 @@ fn handshake_serialize_certificate_request(
     if sig_algs.is_empty() {
         let fallback = SignatureAndHashAlgorithm::supported();
         for alg in fallback.iter() {
-            // Only ECDSA client certificates are accepted (cert_types above).
-            if alg.signature == SignatureAlgorithm::ECDSA {
-                selected.push(*alg);
-            }
+            selected.push(*alg);
         }
     } else {
         for alg in sig_algs.iter() {
@@ -1416,12 +1415,10 @@ fn select_certificate_request_sig_algs(
     let mut out = ArrayVec::new();
     if let Some(list) = client_algs {
         for alg in list.iter() {
-            // Only ECDSA client certificates are accepted, so RSA (which we
-            // support for a server's ServerKeyExchange only) is left out.
-            if alg.signature == SignatureAlgorithm::ECDSA
-                && ours
-                    .iter()
-                    .any(|a| a.hash == alg.hash && a.signature == alg.signature)
+            // ECDSA and RSA PKCS#1 client certificates are both accepted.
+            if ours
+                .iter()
+                .any(|a| a.hash == alg.hash && a.signature == alg.signature)
             {
                 out.push(*alg);
             }
@@ -1486,7 +1483,7 @@ mod tests {
     }
 
     #[test]
-    fn certificate_request_does_not_select_rsa_signatures() {
+    fn certificate_request_selects_ecdsa_and_rsa_signatures() {
         let mut client = SignatureAndHashAlgorithmVec::new();
         client.push(SignatureAndHashAlgorithm::new(
             HashAlgorithm::SHA256,
@@ -1499,13 +1496,14 @@ mod tests {
 
         let selected = select_certificate_request_sig_algs(Some(&client));
 
-        assert_eq!(selected.len(), 1);
+        assert_eq!(selected.len(), 2);
         assert_eq!(selected[0].signature, SignatureAlgorithm::ECDSA);
-        assert_eq!(selected[0].hash, HashAlgorithm::SHA256);
+        assert_eq!(selected[1].signature, SignatureAlgorithm::RSA);
+        assert_eq!(selected[1].hash, HashAlgorithm::SHA256);
     }
 
     #[test]
-    fn certificate_request_rejects_rsa_only_signatures() {
+    fn certificate_request_keeps_rsa_only_signatures() {
         let mut client = SignatureAndHashAlgorithmVec::new();
         client.push(SignatureAndHashAlgorithm::new(
             HashAlgorithm::SHA256,
@@ -1514,6 +1512,27 @@ mod tests {
 
         let selected = select_certificate_request_sig_algs(Some(&client));
 
-        assert!(selected.is_empty());
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].signature, SignatureAlgorithm::RSA);
+    }
+
+    #[test]
+    fn certificate_request_advertises_ecdsa_and_rsa_certificates() {
+        let mut body = Buf::new();
+        handshake_serialize_certificate_request(&mut body, &SignatureAndHashAlgorithmVec::new())
+            .unwrap();
+        // certificate_types: length, then the types.
+        assert_eq!(
+            &body[..3],
+            &[
+                2,
+                ClientCertificateType::ECDSA_SIGN.as_u8(),
+                ClientCertificateType::RSA_SIGN.as_u8()
+            ]
+        );
+        // The fallback signature algorithms include RSA.
+        let sig_len = u16::from_be_bytes([body[3], body[4]]) as usize;
+        let algs = &body[5..5 + sig_len];
+        assert!(algs.chunks(2).any(|a| a[1] == 1), "{algs:?}");
     }
 }

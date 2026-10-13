@@ -29,6 +29,8 @@ pub enum DtlsPKeyType {
     Rsa2048,
     /// Generate a 1536-bit RSA key pair (as some media gateways still use)
     Rsa1536,
+    /// Generate a 768-bit RSA key pair (too small; for tests that refuse it)
+    Rsa768,
     /// Generate an EC-DSA key pair using the NIST P-256 curve
     #[default]
     EcDsaP256,
@@ -73,6 +75,10 @@ impl OsslDtlsCert {
             }
             DtlsPKeyType::Rsa1536 => {
                 let key = Rsa::generate_with_e(1536, &f4)?;
+                PKey::from_rsa(key)?
+            }
+            DtlsPKeyType::Rsa768 => {
+                let key = Rsa::generate_with_e(768, &f4)?;
                 PKey::from_rsa(key)?
             }
             DtlsPKeyType::EcDsaP256 => {

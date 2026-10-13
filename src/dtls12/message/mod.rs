@@ -248,8 +248,9 @@ pub enum KeyExchangeAlgorithm {
     Unknown,
 }
 
-pub type CertificateTypeVec =
-    ArrayVec<ClientCertificateType, { ClientCertificateType::supported().len() }>;
+/// Room for the types a client accepts ([`ClientCertificateType::supported`])
+/// and the types a server requests (ECDSA_SIGN and RSA_SIGN).
+pub type CertificateTypeVec = ArrayVec<ClientCertificateType, 2>;
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]

@@ -194,8 +194,11 @@ pub fn dtls_create_ctx_with_options(
 
     // OpenSSL's default security level refuses RSA keys under 2048 bits,
     // which some media gateways (on older OpenSSL) still serve.
-    if cert.pkey.rsa().is_ok_and(|rsa| rsa.size() * 8 < 2048) {
-        ctx.set_security_level(1);
+    // Level 0 lets tests use keys that are too small on purpose.
+    match cert.pkey.rsa().map(|rsa| rsa.size() * 8) {
+        Ok(bits) if bits < 1024 => ctx.set_security_level(0),
+        Ok(bits) if bits < 2048 => ctx.set_security_level(1),
+        _ => {}
     }
 
     ctx.set_private_key(&cert.pkey)?;
