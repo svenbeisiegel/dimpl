@@ -47,7 +47,22 @@ impl OsslDtlsImpl {
         groups_list: Option<&str>,
         srtp_profiles: Option<&[SrtpProfile]>,
     ) -> Result<Self, CryptoError> {
-        let context = dtls_create_ctx_with_options(&cert, groups_list, srtp_profiles)?;
+        Self::new_with_ems(cert, groups_list, srtp_profiles, true)
+    }
+
+    /// An endpoint that neither offers nor accepts Extended Master Secret
+    /// (RFC 7627), like old embedded TLS stacks.
+    pub fn new_without_ems(cert: OsslDtlsCert) -> Result<Self, CryptoError> {
+        Self::new_with_ems(cert, None, None, false)
+    }
+
+    fn new_with_ems(
+        cert: OsslDtlsCert,
+        groups_list: Option<&str>,
+        srtp_profiles: Option<&[SrtpProfile]>,
+        ems: bool,
+    ) -> Result<Self, CryptoError> {
+        let context = dtls_create_ctx_with_ems(&cert, groups_list, srtp_profiles, ems)?;
         let ssl = dtls_ssl_create(&context)?;
         Ok(OsslDtlsImpl {
             _cert: cert,
@@ -164,6 +179,18 @@ pub fn dtls_create_ctx_with_options(
     groups_list: Option<&str>,
     srtp_profiles: Option<&[SrtpProfile]>,
 ) -> Result<SslContext, CryptoError> {
+    dtls_create_ctx_with_ems(cert, groups_list, srtp_profiles, true)
+}
+
+/// `SSL_OP_NO_EXTENDED_MASTER_SECRET` (OpenSSL 3), not named by the openssl crate.
+const SSL_OP_NO_EXTENDED_MASTER_SECRET: u64 = 1 << 0;
+
+fn dtls_create_ctx_with_ems(
+    cert: &OsslDtlsCert,
+    groups_list: Option<&str>,
+    srtp_profiles: Option<&[SrtpProfile]>,
+    ems: bool,
+) -> Result<SslContext, CryptoError> {
     // TODO: Technically we want to disallow DTLS < 1.2, but that requires
     // us to use this commented out unsafe. We depend on browsers disallowing
     // it instead.
@@ -207,6 +234,11 @@ pub fn dtls_create_ctx_with_options(
     let mut options = SslOptions::empty();
     options.insert(SslOptions::SINGLE_ECDH_USE);
     options.insert(SslOptions::NO_DTLSV1);
+    if !ems {
+        options.insert(SslOptions::from_bits_retain(
+            SSL_OP_NO_EXTENDED_MASTER_SECRET as _,
+        ));
+    }
     ctx.set_options(options);
 
     // Enable DHE cipher suites by setting temporary DH parameters

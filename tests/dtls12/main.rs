@@ -7,6 +7,7 @@ mod data;
 mod edge;
 mod fragmentation;
 mod handshake;
+mod no_ems;
 mod ossl;
 mod psk;
 mod reorder;

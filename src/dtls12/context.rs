@@ -217,6 +217,44 @@ impl CryptoContext {
         Ok(())
     }
 
+    /// Derive the master secret without Extended Master Secret (RFC 5246
+    /// §8.1): `PRF(pre_master_secret, "master secret", client_random +
+    /// server_random)`. Only for peers without RFC 7627, when allowed by
+    /// `Config::require_extended_master_secret`.
+    pub fn derive_master_secret(
+        &mut self,
+        client_random: &[u8],
+        server_random: &[u8],
+        hash: HashAlgorithm,
+        out: &mut Buf,
+        scratch: &mut Buf,
+    ) -> Result<(), CryptoError> {
+        trace!("Deriving master secret without EMS");
+        let Some(pms) = &self.pre_master_secret else {
+            return Err(CryptoError::PreMasterSecretNotAvailable);
+        };
+        let mut seed = Vec::with_capacity(client_random.len() + server_random.len());
+        seed.extend_from_slice(client_random);
+        seed.extend_from_slice(server_random);
+        crypto::prf_hkdf::prf_tls12(
+            self.provider().hmac_provider,
+            pms,
+            "master secret",
+            &seed,
+            out,
+            48,
+            scratch,
+            hash,
+        )?;
+        let mut master_secret = ArrayVec::new();
+        master_secret
+            .try_extend_from_slice(out)
+            .map_err(|_| CryptoError::MasterSecretTooLong)?;
+        self.master_secret = Some(master_secret);
+        self.pre_master_secret = None;
+        Ok(())
+    }
+
     /// Derive master secret using Extended Master Secret (RFC 7627)
     pub fn derive_extended_master_secret(
         &mut self,

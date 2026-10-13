@@ -42,7 +42,12 @@ impl ServerHello {
     /// - Uses the provided buffer to stage extension bytes and then stores Range references
     /// - Includes UseSRTP if a profile is provided
     /// - Includes Extended Master Secret if the flag is set
-    pub fn with_extensions(mut self, buf: &mut Buf, srtp_profile: Option<SrtpProfileId>) -> Self {
+    pub fn with_extensions(
+        mut self,
+        buf: &mut Buf,
+        srtp_profile: Option<SrtpProfileId>,
+        extended_master_secret: bool,
+    ) -> Self {
         // Clear the buffer and collect extension byte ranges
         buf.clear();
 
@@ -61,9 +66,11 @@ impl ServerHello {
             ranges.push((ExtensionType::UseSrtp, start, buf.len()));
         }
 
-        // Extended Master Secret (mandatory)
-        let start = buf.len();
-        ranges.push((ExtensionType::ExtendedMasterSecret, start, start));
+        // Extended Master Secret, when the client offered it (RFC 7627 §5.2)
+        if extended_master_secret {
+            let start = buf.len();
+            ranges.push((ExtensionType::ExtendedMasterSecret, start, start));
+        }
 
         // Renegotiation Info (RFC 5746) - empty for initial handshake
         let start = buf.len();

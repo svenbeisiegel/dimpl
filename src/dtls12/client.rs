@@ -72,6 +72,9 @@ pub struct Client {
     /// This is captured after ServerHelloDone to include the correct handshake messages
     captured_session_hash: Option<Buf>,
 
+    /// The server echoed Extended Master Secret (RFC 7627).
+    extended_master_secret: bool,
+
     /// The last now we seen
     last_now: Instant,
 
@@ -108,6 +111,7 @@ impl Client {
             defragment_buffer,
             certificate_verify: false,
             captured_session_hash: None,
+            extended_master_secret: false,
             last_now: now,
             local_events: VecDeque::new(),
             queued_data: Vec::new(),
@@ -174,6 +178,7 @@ impl Client {
             defragment_buffer,
             certificate_verify: false,
             captured_session_hash: None,
+            extended_master_secret: false,
             last_now: now,
             local_events: VecDeque::new(),
             queued_data: Vec::new(),
@@ -551,13 +556,18 @@ impl State {
         }
 
         // Without extended master secret, in DTLS1.2 a security attack
-        // reusing the same master secret is possible.
+        // reusing the same master secret is possible. Only allowed when the
+        // configuration says so.
         if !extended_master_secret {
-            return Err(Error::SecurityError(
-                crate::SecurityError::ExtendedMasterSecretNotNegotiated,
-            )
-            .into());
+            if client.engine.config().require_extended_master_secret() {
+                return Err(Error::SecurityError(
+                    crate::SecurityError::ExtendedMasterSecretNotNegotiated,
+                )
+                .into());
+            }
+            warn!("Server does not support Extended Master Secret; continuing without it");
         }
+        client.extended_master_secret = extended_master_secret;
 
         if let Some(profile) = client.negotiated_srtp_profile {
             debug!("Negotiated SRTP profile: {:?}", profile);
@@ -1022,11 +1032,25 @@ impl State {
         );
         let mut out = client.engine.pop_buffer();
         let mut scratch = client.engine.pop_buffer();
-        client
-            .engine
-            .crypto_context_mut()
-            .derive_extended_master_secret(session_hash, suite_hash, &mut out, &mut scratch)
-            .map_err(Error::CryptoError)?;
+        if client.extended_master_secret {
+            client
+                .engine
+                .crypto_context_mut()
+                .derive_extended_master_secret(session_hash, suite_hash, &mut out, &mut scratch)
+                .map_err(Error::CryptoError)?;
+        } else {
+            client
+                .engine
+                .crypto_context_mut()
+                .derive_master_secret(
+                    &client_random_buf,
+                    &server_random_buf,
+                    suite_hash,
+                    &mut out,
+                    &mut scratch,
+                )
+                .map_err(Error::CryptoError)?;
+        }
 
         // Derive the encryption/decryption keys
         client

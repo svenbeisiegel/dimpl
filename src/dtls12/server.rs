@@ -85,6 +85,9 @@ pub struct Server {
     /// Captured session hash for Extended Master Secret (RFC 7627)
     captured_session_hash: Option<Buf>,
 
+    /// The client offered Extended Master Secret (RFC 7627).
+    extended_master_secret: bool,
+
     /// Whether the PSK identity resolved to a real key.
     ///
     /// `None` until the PSK ClientKeyExchange is processed. Non-PSK handshakes
@@ -175,6 +178,7 @@ impl Server {
             client_certificates: Vec::with_capacity(3),
             defragment_buffer,
             captured_session_hash: None,
+            extended_master_secret: false,
             psk_valid: None,
             last_now: now,
             local_events: VecDeque::new(),
@@ -465,13 +469,17 @@ impl State {
             }
         }
 
-        // EMS is mandatory
+        // EMS is mandatory unless the configuration allows a peer without it.
         if !client_offers_ems {
-            return Err(Error::SecurityError(
-                crate::SecurityError::ExtendedMasterSecretNotNegotiated,
-            )
-            .into());
+            if server.engine.config().require_extended_master_secret() {
+                return Err(Error::SecurityError(
+                    crate::SecurityError::ExtendedMasterSecretNotNegotiated,
+                )
+                .into());
+            }
+            warn!("Client does not support Extended Master Secret; continuing without it");
         }
+        server.extended_master_secret = client_offers_ems;
 
         // Select the SRTP profile by our configured preference.
         if let Some(profiles) = client_srtp_profiles {
@@ -508,6 +516,7 @@ impl State {
         // unwrap: is ok because we set the random in handle_timeout
         let random = server.random.unwrap();
         let negotiated_srtp_profile = server.negotiated_srtp_profile;
+        let extended_master_secret = server.extended_master_secret;
         let extension_data = &mut server.extension_data;
 
         // Send ServerHello
@@ -520,6 +529,7 @@ impl State {
                     random,
                     session_id,
                     negotiated_srtp_profile,
+                    extended_master_secret,
                     extension_data,
                 )
             })?;
@@ -871,11 +881,25 @@ impl State {
 
         let mut out = server.engine.pop_buffer();
         let mut scratch = server.engine.pop_buffer();
-        server
-            .engine
-            .crypto_context_mut()
-            .derive_extended_master_secret(session_hash, suite_hash, &mut out, &mut scratch)
-            .map_err(Error::CryptoError)?;
+        if server.extended_master_secret {
+            server
+                .engine
+                .crypto_context_mut()
+                .derive_extended_master_secret(session_hash, suite_hash, &mut out, &mut scratch)
+                .map_err(Error::CryptoError)?;
+        } else {
+            server
+                .engine
+                .crypto_context_mut()
+                .derive_master_secret(
+                    &client_random_buf,
+                    &server_random_buf,
+                    suite_hash,
+                    &mut out,
+                    &mut scratch,
+                )
+                .map_err(Error::CryptoError)?;
+        }
 
         server
             .engine
@@ -1210,6 +1234,7 @@ fn handshake_create_server_hello(
     random: Random,
     session_id: SessionId,
     negotiated_srtp_profile: Option<SrtpProfile>,
+    extended_master_secret: bool,
     extension_data: &mut Buf,
 ) -> Result<(), Error> {
     let server_version = ProtocolVersion::DTLS1_2;
@@ -1232,7 +1257,7 @@ fn handshake_create_server_hello(
         CompressionMethod::Null,
         None,
     )
-    .with_extensions(extension_data, srtp_pid);
+    .with_extensions(extension_data, srtp_pid, extended_master_secret);
 
     sh.serialize(extension_data, body);
     Ok(())

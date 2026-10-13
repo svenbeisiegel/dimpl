@@ -65,6 +65,7 @@ pub struct Config {
     max_queue_rx: usize,
     max_queue_tx: usize,
     require_client_certificate: bool,
+    require_extended_master_secret: bool,
     use_server_cookie: bool,
     flight_start_rto: Duration,
     flight_retries: usize,
@@ -87,6 +88,7 @@ impl Config {
             max_queue_rx: 30,
             max_queue_tx: 10,
             require_client_certificate: true,
+            require_extended_master_secret: true,
             use_server_cookie: true,
             flight_start_rto: Duration::from_secs(1),
             flight_retries: 4,
@@ -141,6 +143,16 @@ impl Config {
     #[inline(always)]
     pub fn require_client_certificate(&self) -> bool {
         self.require_client_certificate
+    }
+
+    /// For DTLS 1.2, require the Extended Master Secret (RFC 7627).
+    ///
+    /// When false, a peer without it is accepted and the master secret is
+    /// derived as in RFC 5246 §8.1. See
+    /// [`ConfigBuilder::require_extended_master_secret`].
+    #[inline(always)]
+    pub fn require_extended_master_secret(&self) -> bool {
+        self.require_extended_master_secret
     }
 
     /// Whether the server sends a cookie exchange before the handshake.
@@ -303,6 +315,7 @@ pub struct ConfigBuilder {
     max_queue_rx: usize,
     max_queue_tx: usize,
     require_client_certificate: bool,
+    require_extended_master_secret: bool,
     use_server_cookie: bool,
     flight_start_rto: Duration,
     flight_retries: usize,
@@ -372,6 +385,21 @@ impl ConfigBuilder {
     /// combining this builder with [`with_psk_server`](Self::with_psk_server).
     pub fn require_client_certificate(mut self, require: bool) -> Self {
         self.require_client_certificate = require;
+        self
+    }
+
+    /// Set whether DTLS 1.2 requires the Extended Master Secret (RFC 7627).
+    ///
+    /// Both sides always offer it. When true (the default), a handshake with
+    /// a peer that does not support it fails with
+    /// `SecurityError::ExtendedMasterSecretNotNegotiated`. When false, such a
+    /// peer is accepted and the master secret is derived from the randoms
+    /// only (RFC 5246 §8.1), which leaves the handshake open to the triple
+    /// handshake attack (RFC 7627 §1). Only turn it off for peers that pin
+    /// the certificate by other means, e.g. a DTLS-SRTP fingerprint, and that
+    /// cannot do better (old embedded TLS stacks). DTLS 1.3 is not affected.
+    pub fn require_extended_master_secret(mut self, require: bool) -> Self {
+        self.require_extended_master_secret = require;
         self
     }
 
@@ -631,6 +659,7 @@ impl ConfigBuilder {
             max_queue_rx: self.max_queue_rx,
             max_queue_tx: self.max_queue_tx,
             require_client_certificate: self.require_client_certificate,
+            require_extended_master_secret: self.require_extended_master_secret,
             use_server_cookie: self.use_server_cookie,
             flight_start_rto: self.flight_start_rto,
             flight_retries: self.flight_retries,
@@ -682,6 +711,10 @@ impl fmt::Debug for Config {
                 "require_client_certificate",
                 &self.require_client_certificate,
             )
+            .field(
+                "require_extended_master_secret",
+                &self.require_extended_master_secret,
+            )
             .field("use_server_cookie", &self.use_server_cookie)
             .field("flight_start_rto", &self.flight_start_rto)
             .field("flight_retries", &self.flight_retries)
@@ -707,6 +740,10 @@ impl fmt::Debug for ConfigBuilder {
             .field(
                 "require_client_certificate",
                 &self.require_client_certificate,
+            )
+            .field(
+                "require_extended_master_secret",
+                &self.require_extended_master_secret,
             )
             .field("use_server_cookie", &self.use_server_cookie)
             .field("flight_start_rto", &self.flight_start_rto)
