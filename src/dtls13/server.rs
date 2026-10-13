@@ -734,14 +734,12 @@ impl State {
 
         server.shared_secret = Some(shared_secret);
 
-        // Select SRTP profile: first from client list that the server supports.
-        // Per RFC 5764 Section 4.1.1, the server MUST select a profile that
-        // both sides support.
+        // Select the SRTP profile by our configured preference, among those
+        // the client offered (RFC 5764 Section 4.1.1: both sides support it).
         if let Some(ref profiles) = client_srtp_profiles {
-            for profile_id in profiles {
-                let profile: SrtpProfile = (*profile_id).into();
-                if SrtpProfile::ALL.contains(&profile) {
-                    server.negotiated_srtp_profile = Some(profile);
+            for &preferred in server.engine.config().srtp_profiles() {
+                if profiles.iter().any(|pid| preferred == (*pid).into()) {
+                    server.negotiated_srtp_profile = Some(preferred);
                     break;
                 }
             }

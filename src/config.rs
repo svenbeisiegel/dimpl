@@ -3,7 +3,7 @@ use std::panic::{RefUnwindSafe, UnwindSafe};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::crypto::{CryptoProvider, SupportedDtls12CipherSuite};
+use crate::crypto::{CryptoProvider, SrtpProfile, SupportedDtls12CipherSuite};
 use crate::crypto::{SupportedDtls13CipherSuite, SupportedKxGroup};
 use crate::dtls12::message::Dtls12CipherSuite;
 use crate::types::{Dtls13CipherSuite, NamedGroup};
@@ -75,6 +75,7 @@ pub struct Config {
     dtls12_cipher_suites: Option<Vec<Dtls12CipherSuite>>,
     dtls13_cipher_suites: Option<Vec<Dtls13CipherSuite>>,
     kx_groups: Option<Vec<NamedGroup>>,
+    srtp_profiles: Option<Vec<SrtpProfile>>,
     psk: Option<Psk>,
 }
 
@@ -96,8 +97,17 @@ impl Config {
             dtls12_cipher_suites: None,
             dtls13_cipher_suites: None,
             kx_groups: None,
+            srtp_profiles: None,
             psk: None,
         }
+    }
+
+    /// The DTLS-SRTP protection profiles, in order of preference.
+    ///
+    /// A client offers them in this order; a server picks the first of them
+    /// that the client offered. Defaults to [`SrtpProfile::ALL`].
+    pub fn srtp_profiles(&self) -> &[SrtpProfile] {
+        self.srtp_profiles.as_deref().unwrap_or(SrtpProfile::ALL)
     }
 
     /// Max transmission unit.
@@ -303,10 +313,28 @@ pub struct ConfigBuilder {
     dtls12_cipher_suites: Option<Vec<Dtls12CipherSuite>>,
     dtls13_cipher_suites: Option<Vec<Dtls13CipherSuite>>,
     kx_groups: Option<Vec<NamedGroup>>,
+    srtp_profiles: Option<Vec<SrtpProfile>>,
     psk: Option<Psk>,
 }
 
 impl ConfigBuilder {
+    /// Set the DTLS-SRTP protection profiles, in order of preference.
+    ///
+    /// A client offers only these, in this order, and refuses a server that
+    /// selects another one. A server picks the first of these that the
+    /// client offered. Duplicates are ignored.
+    /// Defaults to [`SrtpProfile::ALL`]; an empty list is a configuration error.
+    pub fn srtp_profiles(mut self, profiles: &[SrtpProfile]) -> Self {
+        let mut list: Vec<SrtpProfile> = Vec::with_capacity(profiles.len());
+        for profile in profiles {
+            if !list.contains(profile) {
+                list.push(*profile);
+            }
+        }
+        self.srtp_profiles = Some(list);
+        self
+    }
+
     /// Set the max transmission unit (MTU).
     ///
     /// The largest size UDP packets we will produce.
@@ -546,6 +574,10 @@ impl ConfigBuilder {
             ));
         }
 
+        if self.srtp_profiles.as_ref().is_some_and(Vec::is_empty) {
+            return Err(Error::ConfigError(ConfigError::NoSrtpProfiles));
+        }
+
         // When PSK is configured, at least one negotiable DTLS 1.2 suite must be
         // a PSK suite. The only PSK suite we implement today is DTLS 1.2 (0xC0A8),
         // so a surviving DTLS 1.3 suite is not a fallback: Dtls::new_12_psk only
@@ -609,6 +641,7 @@ impl ConfigBuilder {
             dtls12_cipher_suites: self.dtls12_cipher_suites,
             dtls13_cipher_suites: self.dtls13_cipher_suites,
             kx_groups: self.kx_groups,
+            srtp_profiles: self.srtp_profiles,
             psk: self.psk,
         })
     }
@@ -659,6 +692,7 @@ impl fmt::Debug for Config {
             .field("dtls12_cipher_suites", &self.dtls12_cipher_suites)
             .field("dtls13_cipher_suites", &self.dtls13_cipher_suites)
             .field("kx_groups", &self.kx_groups)
+            .field("srtp_profiles", &self.srtp_profiles)
             .field("psk", &self.psk)
             .finish()
     }
@@ -684,6 +718,7 @@ impl fmt::Debug for ConfigBuilder {
             .field("dtls12_cipher_suites", &self.dtls12_cipher_suites)
             .field("dtls13_cipher_suites", &self.dtls13_cipher_suites)
             .field("kx_groups", &self.kx_groups)
+            .field("srtp_profiles", &self.srtp_profiles)
             .field("psk", &self.psk)
             .finish()
     }

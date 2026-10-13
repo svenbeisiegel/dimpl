@@ -2,6 +2,7 @@
 
 use std::fmt;
 
+use crate::crypto::SrtpProfile;
 use crate::dtls12::message::Dtls12CipherSuite;
 use crate::types::CompressionMethod;
 use crate::types::Dtls13CipherSuite;
@@ -452,6 +453,8 @@ pub enum SecurityError {
     ServerSelectedDisallowedCipherSuite(Dtls12CipherSuite),
     /// The server selected a DTLS 1.3 cipher suite disallowed by configuration.
     ServerSelectedDisallowedDtls13CipherSuite(Dtls13CipherSuite),
+    /// The server selected an SRTP protection profile that was not offered.
+    ServerSelectedDisallowedSrtpProfile(SrtpProfile),
     /// DTLS 1.2 extended master secret was required but not negotiated.
     ExtendedMasterSecretNotNegotiated,
     /// No mutually acceptable cipher suite was found.
@@ -565,6 +568,8 @@ pub enum ConfigError {
     AeadEncryptionLimitTooSmall,
     /// Cipher-suite filtering removed every available suite.
     NoCipherSuitesAfterFiltering,
+    /// The configured list of SRTP protection profiles is empty.
+    NoSrtpProfiles,
     /// A PSK resolver is configured but no PSK cipher suite remains enabled.
     PskConfiguredWithoutPskCipherSuite,
     /// DTLS 1.2 suites are enabled but no compatible key exchange group remains enabled.
@@ -1146,6 +1151,12 @@ impl fmt::Display for SecurityError {
             Self::ServerSelectedDisallowedDtls13CipherSuite(suite) => {
                 write!(f, "server selected disallowed cipher suite: {suite:?}")
             }
+            Self::ServerSelectedDisallowedSrtpProfile(profile) => {
+                write!(
+                    f,
+                    "server selected an SRTP profile we did not offer: {profile:?}"
+                )
+            }
             Self::ExtendedMasterSecretNotNegotiated => {
                 write!(f, "extended master secret not negotiated")
             }
@@ -1263,6 +1274,7 @@ impl fmt::Display for ConfigError {
                     "DTLS 1.3 cipher suite must be available"
                 )
             ),
+            Self::NoSrtpProfiles => write!(f, "the list of SRTP protection profiles is empty"),
             Self::PskConfiguredWithoutPskCipherSuite => write!(
                 f,
                 "PSK is configured but no PSK cipher suite remains after filtering DTLS 1.2 suites"

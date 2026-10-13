@@ -87,17 +87,17 @@ impl UseSrtpExtension {
         UseSrtpExtension { profiles, mki }
     }
 
-    /// Create a default UseSrtpExtension with standard profiles
-    pub fn default() -> Self {
-        let mut profiles = SrtpProfileVec::new();
-        // Add profiles in order of preference (most secure first)
-        profiles.push(SrtpProfileId::SRTP_AEAD_AES_256_GCM);
-        profiles.push(SrtpProfileId::SRTP_AEAD_AES_128_GCM);
-        profiles.push(SrtpProfileId::SRTP_AES128_CM_SHA1_80);
-
-        // MKI is typically empty as per RFC 5764
+    /// A UseSrtpExtension offering `profiles`, in that order.
+    pub fn from_profiles(profiles: &[SrtpProfile]) -> Self {
+        let mut ids = SrtpProfileVec::new();
+        for profile in profiles {
+            let id = SrtpProfileId::from(*profile);
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
         UseSrtpExtension {
-            profiles,
+            profiles: ids,
             mki: ArrayVec::new(),
         }
     }
